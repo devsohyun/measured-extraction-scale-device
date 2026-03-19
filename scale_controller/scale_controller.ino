@@ -35,6 +35,17 @@ int confirmButtonState;
 const int endstopPin = 11;
 int endstopState = 0;
 
+// Measuring
+unsigned long measureStartTime = 0;
+bool isMeasuringPhase = true;
+bool measurementStarted = false;
+
+long maxDiffCaptured = 0;
+int selectedSensor = 0;
+
+long finalMovement = 0;
+bool movementCalculated = false;
+
 // System States
 #define CALIBRATION 0
 #define STANDBY 1
@@ -42,7 +53,7 @@ int endstopState = 0;
 int state = CALIBRATION;
 
 // Parameters
-const int threshold = 5;
+const int threshold = 5;  // set minimum hall value you want to read
 
 // Standard Functions
 void setup() {
@@ -54,7 +65,7 @@ void setup() {
   pinMode(endstopPin, INPUT_PULLUP);
 
   stepper.setMaxSpeed(1000);
-  stepper.setAcceleration(2000);
+  stepper.setAcceleration(500);
 }
 
 void loop() {
@@ -149,50 +160,91 @@ void standbyMode() {
 
 // Measuring Mode
 void measuringMode() {
-  // Filter all sensors
-  hallFiltered1 = hallFiltered1 * 0.9 + hallVal1 * 0.1;
-  hallFiltered2 = hallFiltered2 * 0.9 + hallVal2 * 0.1;
-  hallFiltered3 = hallFiltered3 * 0.9 + hallVal3 * 0.1;
-
-  // Calculate differences
-  long diff1 = abs(hallFiltered1 - hallBaseVal1);
-  long diff2 = abs(hallFiltered2 - hallBaseVal2);
-  long diff3 = abs(hallFiltered3 - hallBaseVal3);
-
-  // Find dominant sensor
-  long maxDiff = diff1;
-  int activeSensor = 1;
-
-  if (diff2 > maxDiff) {
-    maxDiff = diff2;
-    activeSensor = 2;
-  }
-
-  if (diff3 > maxDiff) {
-    maxDiff = diff3;
-    activeSensor = 3;
-  }
-
-  long movement;
-  Serial.println(maxDiff);
-  if (maxDiff > threshold) {
-    movement = map(maxDiff, 5, 200, 5000, 30000);
-  } else {
-    movement = 2000;  // default movement
-  }
-
-  long target = initialStepperPosition + movement;
-  stepper.moveTo(target);
-
-  // Phone removed
-  if (endstopState == 1) {
+  // If phone removed
+  if (endstopState == HIGH) {
     stepper.moveTo(initialStepperPosition);
     state = STANDBY;
-    // stepper.runToNewPosition
+
+    // Important! - reset everything
+    isMeasuringPhase = true;
+    measurementStarted = false;
+    measureStartTime = 0;
+    maxDiffCaptured = 0;
+    movementCalculated = false;
+    finalMovement = 0;
+
     Serial.println("Phone removed");
+    return;
   }
 
-  // Debug active sensor
-  Serial.print(" Active Sensor: ");
-  Serial.println(activeSensor);
+  // Measuring
+  if (isMeasuringPhase) {
+
+    // Start timer once
+    if (measureStartTime == 0) {
+      measureStartTime = millis();
+      Serial.println("Start measuring...");
+    }
+
+    // Calculate differences
+    long diff1 = abs(hallVal1 - hallBaseVal1);
+    long diff2 = abs(hallVal2 - hallBaseVal2);
+    long diff3 = abs(hallVal3 - hallBaseVal3);
+
+    // Find current max
+    long currentMax = diff1;
+    int currentSensor = 1;
+
+    if (diff2 > currentMax) {
+      currentMax = diff2;
+      currentSensor = 2;
+    }
+
+    if (diff3 > currentMax) {
+      currentMax = diff3;
+      currentSensor = 3;
+    }
+
+    // Store the HIGHEST value during 5 seconds
+    if (currentMax > maxDiffCaptured) {
+      maxDiffCaptured = currentMax;
+      selectedSensor = currentSensor;
+    }
+
+    // Debug
+    Serial.print("Measuring... maxDiffCaptured: ");
+    Serial.println(maxDiffCaptured);
+
+    // Check if 5 seconds passed
+    if (millis() - measureStartTime >= 5000) {
+      isMeasuringPhase = false;
+      Serial.println("Measurement complete");
+    }
+
+    return;  // DO NOT move motor yet
+  }
+
+  // Movement
+  if (!movementCalculated) {
+    if (maxDiffCaptured > threshold) {
+      finalMovement = map(maxDiffCaptured, 5, 200, 200, 5000);
+      if (finalMovement > 5000) {
+        finalMovement = 5000;
+      }
+    } else {
+      finalMovement = random(2000, 2800);
+    }
+    movementCalculated = true;
+  }
+
+  // Use stored value
+  long target = initialStepperPosition + finalMovement;
+  // Move stepper
+  stepper.runToNewPosition(target);
+
+  // Debug
+  Serial.print("Selected Sensor: ");
+  Serial.print(selectedSensor);
+  Serial.print(" | Movement: ");
+  Serial.println(finalMovement);
 }
