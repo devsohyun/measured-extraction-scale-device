@@ -53,7 +53,7 @@ bool movementCalculated = false;
 int state = CALIBRATION;
 
 // Parameters
-const int threshold = 5;  // set minimum hall value you want to read
+const int threshold = 17;  // set minimum hall value you want to read
 
 // Standard Functions
 void setup() {
@@ -123,9 +123,13 @@ void calibrationMode() {
   if (leftButtonState == LOW) {
     // stepper.setSpeed(-jogSpeed);
     stepper.runToNewPosition(stepper.currentPosition() + moveAmount);
+    Serial.print("Moving to: +");
+    Serial.println(moveAmount);
   } else if (rightButtonState == LOW) {
     // stepper.setSpeed(jogSpeed);
     stepper.runToNewPosition(stepper.currentPosition() - moveAmount);
+    Serial.print("Moving to: -");
+    Serial.println(moveAmount);
   }
 
   // Confirm
@@ -225,11 +229,12 @@ void measuringMode() {
   }
 
   // Movement
+  int maxMovement = 6000;
   if (!movementCalculated) {
     if (maxDiffCaptured > threshold) {
-      finalMovement = map(maxDiffCaptured, 5, 200, 200, 5000);
-      if (finalMovement > 5000) {
-        finalMovement = 5000;
+      finalMovement = map(maxDiffCaptured, 5, 150, 200, maxMovement);
+      if (finalMovement > maxMovement) {
+        finalMovement = maxMovement;
       }
     } else {
       finalMovement = random(2000, 2800);
@@ -237,8 +242,12 @@ void measuringMode() {
     movementCalculated = true;
   }
 
+  // Decide which side to rise
+  bool isRockRise = true;
+
   // Use stored value
-  long target = initialStepperPosition + finalMovement;
+  long target = isRockRise ? initialStepperPosition - finalMovement : initialStepperPosition + finalMovement;
+
   // Move stepper
   stepper.runToNewPosition(target);
 
